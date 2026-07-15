@@ -17,10 +17,35 @@
     width: 100vw;
     height: 100vh;
   }
+  #music {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 224, 100, 0.35);
+    background: rgba(10, 20, 12, 0.55);
+    color: rgba(255, 234, 140, 0.85);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.3s;
+  }
+  #music:hover, #music:focus-visible {
+    opacity: 1;
+    outline: none;
+  }
+  #music.off {
+    color: rgba(180, 190, 180, 0.5);
+    border-color: rgba(180, 190, 180, 0.25);
+  }
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
+<button id="music" class="off" aria-label="Toggle music" title="Music">&#9834;</button>
 <script>
 (() => {
   'use strict';
@@ -634,6 +659,120 @@
 
   resize(true);
   if (!reducedMotion) requestAnimationFrame(frame);
+
+  // ---------- generative background music ----------
+  // Soft music-box plucks on a pentatonic scale over a warm pad, with echo.
+  // Created lazily on the first user gesture (browsers block audio autoplay).
+  const musicBtn = document.getElementById('music');
+  let audio = null;          // { ctx, master, pluckTimer }
+  let musicOn = false;
+  let userDisabled = false;  // once turned off, don't auto-start again
+
+  const SCALE = [261.63, 293.66, 329.63, 392.0, 440.0,   // C4 D4 E4 G4 A4
+                 523.25, 587.33, 659.25, 783.99, 880.0]; // C5 D5 E5 G5 A5
+
+  function createAudio() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const master = ctx.createGain();
+    master.gain.value = 0;
+    master.connect(ctx.destination);
+
+    // echo bus
+    const delay = ctx.createDelay(1.0);
+    delay.delayTime.value = 0.45;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.32;
+    const echoLevel = ctx.createGain();
+    echoLevel.gain.value = 0.4;
+    delay.connect(feedback).connect(delay);
+    delay.connect(echoLevel).connect(master);
+
+    // warm pad: two detuned triangles through a slowly moving lowpass
+    const padFilter = ctx.createBiquadFilter();
+    padFilter.type = 'lowpass';
+    padFilter.frequency.value = 320;
+    const padGain = ctx.createGain();
+    padGain.gain.value = 0.05;
+    padFilter.connect(padGain).connect(master);
+    for (const [freq, detune] of [[110, 0], [164.81, 4]]) {  // A2, E3
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+      osc.connect(padFilter);
+      osc.start();
+    }
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.05;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 120;
+    lfo.connect(lfoGain).connect(padFilter.frequency);
+    lfo.start();
+
+    function pluck(freq, when, vel) {
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(vel, when + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + 2.8);
+      osc.connect(g);
+      g.connect(master);
+      g.connect(delay);
+      osc.start(when);
+      osc.stop(when + 3);
+    }
+
+    function scheduleNext() {
+      const now = ctx.currentTime;
+      const note = SCALE[randInt(0, SCALE.length - 1)];
+      pluck(note, now + 0.05, rand(0.10, 0.18));
+      if (Math.random() < 0.3) {  // occasional gentle harmony a third-ish below
+        const idx = SCALE.indexOf(note);
+        if (idx >= 2) pluck(SCALE[idx - 2], now + 0.05 + rand(0.05, 0.2), rand(0.06, 0.10));
+      }
+      audio.pluckTimer = setTimeout(scheduleNext, rand(1100, 3200));
+    }
+
+    audio = { ctx, master, pluckTimer: null };
+    scheduleNext();
+    return audio;
+  }
+
+  function setMusic(on) {
+    musicOn = on;
+    musicBtn.classList.toggle('off', !on);
+    if (on) {
+      if (!audio) createAudio();
+      audio.ctx.resume();
+      const now = audio.ctx.currentTime;
+      audio.master.gain.cancelScheduledValues(now);
+      audio.master.gain.setValueAtTime(audio.master.gain.value, now);
+      audio.master.gain.linearRampToValueAtTime(0.16, now + 3);
+    } else if (audio) {
+      const now = audio.ctx.currentTime;
+      audio.master.gain.cancelScheduledValues(now);
+      audio.master.gain.setValueAtTime(audio.master.gain.value, now);
+      audio.master.gain.linearRampToValueAtTime(0, now + 0.6);
+    }
+  }
+
+  musicBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    userDisabled = musicOn;      // remember an explicit turn-off
+    setMusic(!musicOn);
+  });
+
+  // start music on the first tap/click anywhere, unless explicitly disabled
+  function firstGesture(e) {
+    if (e.target === musicBtn) return;   // let the button's own click handler decide
+    if (!musicOn && !userDisabled) setMusic(true);
+    window.removeEventListener('pointerdown', firstGesture);
+    window.removeEventListener('keydown', firstGesture);
+  }
+  window.addEventListener('pointerdown', firstGesture);
+  window.addEventListener('keydown', firstGesture);
 })();
 </script>
 </body>
