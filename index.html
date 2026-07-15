@@ -162,7 +162,7 @@
   function makeSparkles() {
     sparkles = [];
     for (const f of flowers) {
-      const n = randInt(6, 9);
+      const n = randInt(3, 5);
       for (let i = 0; i < n; i++) {
         sparkles.push({
           flower: f,
@@ -185,12 +185,17 @@
     const cx = W / 2;
     const s = Math.min(W, H);           // scale unit
 
-    // three flowers: tall center, two flanking — like a small bouquet
-    flowers = [
-      makeFlower(cx - s * 0.10, baseY, s * rand(0.36, 0.42), -0.10, 0.95, 600),
-      makeFlower(cx + s * 0.002, baseY, s * rand(0.50, 0.56),  0.015, 1.1, 0),
-      makeFlower(cx + s * 0.10, baseY, s * rand(0.40, 0.46),  0.12, 1.0, 300),
-    ];
+    // bouquet: stems fan out from a tight base, heads form a dome
+    flowers = [];
+    const n = randInt(7, 9);
+    for (let i = 0; i < n; i++) {
+      const spread = (i / (n - 1)) * 2 - 1;                     // -1 .. 1 across the fan
+      const lean = spread * 0.42 + rand(-0.04, 0.04);
+      const stemH = s * (0.52 - 0.16 * spread * spread) * rand(0.9, 1.1);
+      const x = cx + spread * s * 0.03 + rand(-s * 0.008, s * 0.008);
+      flowers.push(makeFlower(x, baseY, stemH, lean, rand(0.72, 1.0), rand(0, 1400)));
+    }
+    flowers.sort((a, b) => b.stemH - a.stemH);                  // tall behind, short in front
 
     grasses = [
       ...makeGrassCluster(cx - s * 0.30, baseY, randInt(7, 10), s * 0.18, s * 0.42, s * 0.10),
